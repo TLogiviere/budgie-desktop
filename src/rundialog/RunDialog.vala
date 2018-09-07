@@ -132,11 +132,11 @@ public class RunDialog : Gtk.ApplicationWindow
         main_layout.pack_start(hbox, false, false, 0);
 
         this.entry = new Gtk.SearchEntry();
-        this.entry.set_placeholder_text("Type to search an app…");
-        this.entry.set_icon_from_icon_name (Gtk.EntryIconPosition.SECONDARY, "view-list-symbolic");
-        this.entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, true);
+        entry.set_placeholder_text("Type to search an app…");
+        entry.set_icon_from_icon_name (Gtk.EntryIconPosition.SECONDARY, "view-list-symbolic");
+        entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, true);
         stderr.printf(this.entry.get_icon_name(Gtk.EntryIconPosition.PRIMARY).to_string());
-        this.entry.icon_press.connect ((pos, event) => {
+        entry.icon_press.connect ((pos, event) => {
             if (pos == Gtk.EntryIconPosition.SECONDARY) {
                 toggle_bottom_revealer();
             }
@@ -228,17 +228,17 @@ public class RunDialog : Gtk.ApplicationWindow
 
     void set_icon_tooltip(){
         if (this.bottom_revealer.get_reveal_child())
-            entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Hide the list");
+            this.entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Hide the list");
         else
-            entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Show all apps");
+            this.entry.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "Show all apps");
     }
     void toggle_bottom_revealer() {
         if (this.bottom_revealer.get_reveal_child()) {
-            this.bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP);
-            this.bottom_revealer.set_reveal_child(false);
+            bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP);
+            bottom_revealer.set_reveal_child(false);
         } else {
-            this.bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN);
-            this.bottom_revealer.set_reveal_child(true);
+            bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN);
+            bottom_revealer.set_reveal_child(true);
         }
         set_icon_tooltip();
     }
@@ -276,7 +276,7 @@ public class RunDialog : Gtk.ApplicationWindow
             DesktopAppInfo dinfo = button.app_info as DesktopAppInfo;
 
             this.context.set_screen(get_screen());
-            this.context.set_timestamp(Gdk.CURRENT_TIME);
+            context.set_timestamp(Gdk.CURRENT_TIME);
             this.focus_quit = false;
             string[] splits = dinfo.get_id().split(".desktop");
             if (dinfo.get_boolean("DBusActivatable")) {
@@ -298,7 +298,7 @@ public class RunDialog : Gtk.ApplicationWindow
         // Updating the result area (ListBox)
         this.app_box.invalidate_filter();
         /* We don't sort the buttons if the search entry is empty
-         * It could be better to sort by alphabetical order when the search entry is empty
+         * but it could be better to sort by alphabetical order.
          */
         if (this.search_text != "")
             this.app_box.invalidate_sort();
@@ -516,7 +516,7 @@ public class RunDialog : Gtk.ApplicationWindow
  */
 public class RunDialogApp : Gtk.Application {
 
-    public RunDialog? rd = null;
+    private RunDialog? rd = null;
 
     public RunDialogApp()
     {
