@@ -540,7 +540,8 @@ public class RunDialogApp : Gtk.Application {
         }
     }
     /**
-     * Build the app buttons in the background
+     * Get all apps and instantiate an AppauncherButton for each
+     * Called when main loop is idle.
      */
     public void populate_app_box()
     {
