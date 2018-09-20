@@ -76,19 +76,17 @@ public class RunDialog : Gtk.ApplicationWindow
 
     Gtk.Box? main_layout;
     Gtk.Revealer bottom_revealer;
-    public Gtk.ListBox? app_box;
+    internal Gtk.ListBox? app_box {public get; internal set;}
+    Gtk.ScrolledWindow scroll;
     Gtk.SearchEntry entry;
     Budgie.ThemeManager theme_manager;
     Gdk.AppLaunchContext context;
     bool focus_quit = true;
     DBusImpl? impl = null;
     Gtk.ListBoxRow? first_revealed_row;
-
     string search_text = "";
-
     /* The .desktop file without the .desktop */
     string wanted_dbus_id = "";
-
     /* Active dbus names */
     HashTable<string,bool> active_names = null;
 
@@ -116,7 +114,7 @@ public class RunDialog : Gtk.ApplicationWindow
         /* Handle all theme management */
         this.theme_manager = new Budgie.ThemeManager();
 
-        Gtk.EventBox header = new Gtk.EventBox();
+        var header = new Gtk.EventBox();
         set_titlebar(header);
         header.get_style_context().remove_class("titlebar");
 
@@ -128,14 +126,14 @@ public class RunDialog : Gtk.ApplicationWindow
         this.main_layout = new Gtk.Box(Gtk.Orientation.VERTICAL, 0);
         add(main_layout);
         /* Main layout, just a hbox with search-as-you-type */
-        Gtk.Box hbox = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
+        var hbox = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
         main_layout.pack_start(hbox, false, false, 0);
 
         this.entry = new Gtk.SearchEntry();
         entry.set_placeholder_text("Type to search an app…");
         entry.set_icon_from_icon_name (Gtk.EntryIconPosition.SECONDARY, "view-list-symbolic");
         entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, true);
-        stderr.printf(this.entry.get_icon_name(Gtk.EntryIconPosition.PRIMARY).to_string());
+        //stderr.printf(this.entry.get_icon_name(Gtk.EntryIconPosition.PRIMARY).to_string());
         entry.icon_press.connect ((pos, event) => {
             if (pos == Gtk.EntryIconPosition.SECONDARY) {
                 toggle_bottom_revealer();
@@ -146,17 +144,17 @@ public class RunDialog : Gtk.ApplicationWindow
          * char 5 permit to increase the filtering as per the doc.
          * Still, reacting to event "changed" makes the search feels more reactive… ?_?
          */
-        this.entry.changed.connect(() => {
+        entry.changed.connect(() => {
             this.search_text = entry.text;
             on_search_changed();
         });
-        this.entry.activate.connect(on_search_activate);
-        this.entry.get_style_context().set_junction_sides(Gtk.JunctionSides.BOTTOM);
+        //entry.activate.connect(on_search_activate);
+        entry.get_style_context().set_junction_sides(Gtk.JunctionSides.BOTTOM);
 
         hbox.pack_start(entry, true, true, 0);
 
         this.bottom_revealer = new Gtk.Revealer();
-        main_layout.pack_start(bottom_revealer, true, true, 0);
+        this.main_layout.pack_start(bottom_revealer, true, true, 0);
 
         this.app_box = new Gtk.ListBox();
         app_box.set_selection_mode(Gtk.SelectionMode.SINGLE);
@@ -165,13 +163,13 @@ public class RunDialog : Gtk.ApplicationWindow
         app_box.set_filter_func(this.filter_fn);
         app_box.set_sort_func(this.sort_fn);
 
-        Gtk.ScrolledWindow scroll = new Gtk.ScrolledWindow(null, null);
+        this.scroll = new Gtk.ScrolledWindow(null, null);
         scroll.get_style_context().set_junction_sides(Gtk.JunctionSides.TOP);
         scroll.set_size_request(-1, 300);
         scroll.add(app_box);
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
 
-        this.bottom_revealer.add(scroll);
+        bottom_revealer.add(scroll);
         /* Just so I can debug for now = false
          * false: hide the filter result area when the tool is started
          * true: you know it…
@@ -189,41 +187,64 @@ public class RunDialog : Gtk.ApplicationWindow
         set_resizable(false);
 
         focus_out_event.connect(()=> {
-            if (!this.focus_quit) {
+            if (this.focus_quit) {
+                this.application.quit();
                 return Gdk.EVENT_STOP;
             }
-            this.application.quit();
             return Gdk.EVENT_STOP;
         });
 
         //add_events(Gdk.EventMask.KEY_PRESS_MASK);
         key_press_event.connect((event) => {
-            if (event.keyval == Gdk.Key.Up) {
-                if (!this.entry.has_focus){
-                    var index_first = this.first_revealed_row.get_index();
-                    var index_selected = this.app_box.get_selected_row().get_index();
-                    if (index_first == index_selected){
-                        this.entry.grab_focus_without_selecting();
+            if (this.first_revealed_row == null)
+                first_revealed_row = app_box.get_row_at_index(0);
+            Gtk.ListBoxRow selected_row = app_box.get_selected_row();
+            if (event.keyval == Gdk.Key.Return){
+                if (selected_row == null){
+                    if (first_revealed_row != null){
+                        app_box.select_row(first_revealed_row);
+                        first_revealed_row.grab_focus();
+                        }
+                    if (!this.bottom_revealer.get_reveal_child())
+                        toggle_bottom_revealer();
+                    return true;
+                }else {
+                    selected_row.grab_focus();
+                    if (!this.bottom_revealer.get_reveal_child()){
+                        toggle_bottom_revealer();
                         return true;
                     }
+                    return false;
                 }
-                return false;
-            } else if (event.keyval == Gdk.Key.Down || event.keyval == Gdk.Key.Page_Up || event.keyval == Gdk.Key.Page_Down) {
-                if (this.first_revealed_row != null){
-                    if (this.entry.has_focus)
-                        this.first_revealed_row.grab_focus();
-                    }
-                return false;
-            // Other keys but Escape
-            } else if (event.keyval != Gdk.Key.Escape){
-                if (!this.entry.has_focus)
-                    this.entry.grab_focus_without_selecting();
-                return false;
             }
+
+            if (this.bottom_revealer.get_reveal_child()){
+                if (event.keyval == Gdk.Key.Up) {
+                    if (!this.entry.has_focus &&
+                        (selected_row == null || (selected_row.get_index() == first_revealed_row.get_index()))){
+                            entry.grab_focus_without_selecting();
+                            return true;
+                        }
+                    return false;
+                } else if (event.keyval == Gdk.Key.Down || event.keyval == Gdk.Key.Page_Up ||
+                            event.keyval == Gdk.Key.Page_Down)
+                            {
+                    if (this.entry.has_focus){
+                        app_box.select_row(first_revealed_row);
+                        first_revealed_row.grab_focus();
+                    }
+                    return false;
+                }
+            }
+            // Other keys but Escape
+            if (event.keyval != Gdk.Key.Escape){
+                if (!this.entry.has_focus)
+                    entry.grab_focus_without_selecting();
+                }
             return false;
         });
 
-        main_layout.show_all();
+        this.main_layout.show_all();
     }
 
     void set_icon_tooltip(){
@@ -236,6 +257,7 @@ public class RunDialog : Gtk.ApplicationWindow
         if (this.bottom_revealer.get_reveal_child()) {
             bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP);
             bottom_revealer.set_reveal_child(false);
+            this.entry.grab_focus();
         } else {
             bottom_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN);
             bottom_revealer.set_reveal_child(true);
@@ -251,29 +273,30 @@ public class RunDialog : Gtk.ApplicationWindow
     }
 
     /**
+     * We don't need this anymore as the activation detection now follows focus
      * Handle <enter> activation on the search
      */
-    void on_search_activate()
+    /*void on_search_activate()
     {
         // null check is mandatory to prevent spitting "assertion 'selected_row != NULL' failed"
-        var selected_row = this.app_box.get_selected_row();
+        Gtk.ListBoxRow? selected_row = this.app_box.get_selected_row();
         if (selected_row != null){
             activate_row(selected_row);
         }
-    }
+    }*/
 
     void activate_row(Gtk.ListBoxRow row)
     {
-        launch_button((row as Gtk.Bin).get_child() as AppLauncherButton);
+        launch_app((AppLauncherButton)row.get_child());
     }
 
     /**
      * Launch the given preconfigured button
      */
-    void launch_button(AppLauncherButton button)
+    void launch_app(AppLauncherButton button)
     {
         try {
-            DesktopAppInfo dinfo = button.app_info as DesktopAppInfo;
+            var dinfo = (DesktopAppInfo)button.app_info;
 
             this.context.set_screen(get_screen());
             context.set_timestamp(Gdk.CURRENT_TIME);
@@ -285,7 +308,7 @@ public class RunDialog : Gtk.ApplicationWindow
             dinfo.launch(null, context);
             check_dbus_name();
             // Some apps are slow to open so hide and quit when they're done
-            hide();
+            this.hide();
         } catch (Error e) {
             this.application.quit();
         }
@@ -295,52 +318,52 @@ public class RunDialog : Gtk.ApplicationWindow
     {
         // Setting the string used in the filter function
         this.search_text = entry.get_text().down();
-        // Updating the result area (ListBox)
-        this.app_box.invalidate_filter();
+
         /* We don't sort the buttons if the search entry is empty
          * but it could be better to sort by alphabetical order.
          */
-        if (this.search_text != "")
+        if (search_text != "") {
             this.app_box.invalidate_sort();
+            // Updating the result area (ListBox)
+            app_box.invalidate_filter();
+            /this.scroll.unset_placement();
+        }
 
         this.first_revealed_row = null;
-        foreach (var row in this.app_box.get_children()) {
-                /*
-                 * row.get_visible() is insufficient but row.get_child_visible() is not.
-                 */
+        foreach (Gtk.Widget? row in app_box.get_children()) {
+                /* row.get_visible() is insufficient but row.get_child_visible() is not */
                 if (row.get_child_visible()) {
-                    // We keep memory of the first ListBoxRow matching the search
-                    this.first_revealed_row = row as Gtk.ListBoxRow;
+                    /* We keep memory of the first ListBoxRow matching the search */
+                    first_revealed_row = (Gtk.ListBoxRow)row;
                     break;
                 }
             }
-        // If at least one app_info match the search
-        if (this.first_revealed_row != null) {
-            // If the text entry is not empty (e.g. when the user clears it)
-            if (this.search_text != "") {
+        /* If at least one app_info match the search */
+        if (first_revealed_row != null) {
+            /* If the text entry is not empty (e.g. when the user clears it) */
+            if (search_text != "") {
                 //this.app_box.invalidate_sort();
                 /*var selected_row = this.app_box.get_selected_row();
                 if (selected_row == null || !selected_row.get_child_visible())*/
-                    this.app_box.select_row(this.first_revealed_row);
+                    app_box.select_row(first_revealed_row);
+                    //first_revealed_row.grab_focus();
                     //this.app_box.selected_rows_changed();
-                    //this.first_revealed_row.grab_focus();
             } else {
-                /* Unsucessful attempt at displaying the show/hide app list icon when the search is cleared.
-                 */
+                /* Unsucessful attempt at re-displaying the show/hide app list icon when the search is cleared */
 
-                /*this.entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, "view-list-symbolic");
-                this.entry.set_icon_activatable(Gtk.EntryIconPosition.SECONDARY, true);
-                this.entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, true);
-                this.entry.set_visibility(true);
-                this.entry.show_all();
-                */
+                //this.entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, "view-list-symbolic");
+                //this.entry.set_icon_activatable(Gtk.EntryIconPosition.SECONDARY, true);
+                //this.entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, true);
+                //this.entry.set_visibility(true);
+                //this.entry.show_all();
 
-                /* Unselect previously selected row(s) so we keep lag out of user critical input
-                 * (launching of an app) by just checking for null in on_search_activate.
-                 * Plus, when there is nothing to do, a bit more processing does not matter.
-                 */
-                this.app_box.unselect_all();
-                //this.app_box.unselect_row(this.app_box.get_selected_row());
+                /* Unselecting previously selected row(s) */
+                /* Usefull when selection mode is multiple */
+                //app_box.unselect_all();
+                /* When selection mode is singleton */
+                Gtk.ListBoxRow selected_row = app_box.get_selected_row();
+                if (selected_row != null)
+                    app_box.unselect_row(selected_row);
             }
             // We display the widget containing (the widget containing) the list of app
             if (!this.bottom_revealer.get_reveal_child()) {
@@ -355,7 +378,7 @@ public class RunDialog : Gtk.ApplicationWindow
                  * (launching of an app) by just checking for null in on_search_activate.
                  * Plus, when there is no result to show, a bit more processing does not matter.
                  */
-            this.app_box.unselect_all();
+            app_box.unselect_all();
             //this.app_box.unselect_row(this.app_box.get_selected_row());
             //this.first_revealed_row = null;
         }
@@ -363,13 +386,14 @@ public class RunDialog : Gtk.ApplicationWindow
 
     /**
      * Filter and sort the list
-     * We filter based on every information string we have but sort only with 'human' informative ones (display_name, exec_name, description)
-     * as some app can have non informative name but informative display_name e.g : gufw name is ghbbutton but display name is firewall configuration.
+     * We filter based on every information string we have but sort only with 'human' informative ones like
+     * display_name, exec_name, description. Because some apps have non informative name but informative display_name
+     * e.g : gufw name is ghbbutton but display name is firewall configuration.
      * By doing so, we provide the most user-friendly sort.
      */
-    bool filter_fn(Gtk.ListBoxRow row)
+    bool filter_fn(Gtk.ListBoxRow? row)
     {
-        AppLauncherButton button = row.get_child() as AppLauncherButton;
+        AppLauncherButton? button = (AppLauncherButton)row.get_child();
 
         if (this.search_text == "") {
             /* true : Let all the apps match when the search string is empty
@@ -396,17 +420,17 @@ public class RunDialog : Gtk.ApplicationWindow
     }
 
     int sort_fn(Gtk.ListBoxRow row1, Gtk.ListBoxRow row2){
-        var btn1 = row1.get_child() as AppLauncherButton;
+        var btn1 = (AppLauncherButton)row1.get_child();
         if (this.search_text in btn1.app_info.get_display_name().down())// || this.search_text in btn1.app_info.get_executable().down())
             return -1;
         else {
-            var btn2 = row2.get_child() as AppLauncherButton;
+            var btn2 = (AppLauncherButton)row2.get_child();
             if (this.search_text in btn2.app_info.get_display_name().down())// || this.search_text in btn2.app_info.get_executable().down())
                 return 1;
             else {
-                if (this.search_text in btn1.bdesc)
+                if (search_text in btn1.bdesc)
                     return -1;
-                else if(this.search_text in btn2.bdesc)
+                else if(search_text in btn2.bdesc)
                     return 1;
                 return 0;
             }
@@ -477,7 +501,7 @@ public class RunDialog : Gtk.ApplicationWindow
             check_dbus_name();
         } else {
             if (n in this.active_names) {
-                active_names.remove(n);
+                this.active_names.remove(n);
             }
         }
     }
